@@ -1,0 +1,33 @@
+# MongoDB Atlas (or any remote MongoDB). No local mongo container.
+# Needs a .env file next to this one with MONGO_URI=...
+# Run:  docker compose -f docker-compose.atlas.yml up --build -d
+services:
+  app:
+    build: .
+    environment:
+      MONGO_URI: ${MONGO_URI:?set MONGO_URI in .env}
+      MONGO_DB: pipeline
+      WORKERS: ${WORKERS:-4}
+      BATCH_MAX: ${BATCH_MAX:-500}
+      MAX_PENDING: ${MAX_PENDING:-20000}
+    ports: ["8080:8080"]
+    mem_limit: 1g
+    stop_grace_period: 60s
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  loadtest:
+    build: .
+    profiles: ["loadtest"]
+    entrypoint: ["node", "dist/loadtest/index.js"]
+    user: root
+    environment:
+      TARGET_URL: http://app:8080
+      MONGO_URI: ${MONGO_URI:?set MONGO_URI in .env}
+    depends_on:
+      app: { condition: service_healthy }
+    volumes: ["./results:/app/results"]

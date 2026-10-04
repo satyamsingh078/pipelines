@@ -1,0 +1,46 @@
+# DEFAULT: local MongoDB + the service, one command:  docker compose up --build -d
+# For MongoDB Atlas use docker-compose.atlas.yml instead (see README).
+services:
+  mongo:
+    image: mongo:7
+    volumes: ["mongo-data:/data/db"]
+    ports: ["27017:27017"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      WORKERS: ${WORKERS:-4}
+      BATCH_MAX: ${BATCH_MAX:-500}
+      MAX_PENDING: ${MAX_PENDING:-20000}
+    depends_on:
+      mongo: { condition: service_healthy }
+    ports: ["8080:8080"]
+    mem_limit: 1g
+    stop_grace_period: 60s
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  loadtest:
+    build: .
+    profiles: ["loadtest"]
+    entrypoint: ["node", "dist/loadtest/index.js"]
+    user: root
+    environment:
+      TARGET_URL: http://app:8080
+      MONGO_URI: mongodb://mongo:27017
+    depends_on:
+      app: { condition: service_healthy }
+    volumes: ["./results:/app/results"]
+
+volumes:
+  mongo-data:
